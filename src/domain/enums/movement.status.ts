@@ -1,0 +1,7 @@
+export enum MovementStatus {
+  PENDING = 'PENDING',
+  MATCHED = 'MATCHED',
+  MANUAL_MATCH = 'MANUAL_MATCH',
+  DIFFERENCE = 'DIFFERENCE',
+  DUPLICATE = 'DUPLICATE',
+}
