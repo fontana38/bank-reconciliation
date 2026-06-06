@@ -38,6 +38,9 @@ export class MovementSchema {
   @Prop()
   description?: string;
 
+  @Prop()
+  normalizedDescription?: string;
+
   @Prop({ required: true })
   amount!: number;
 
@@ -45,5 +48,5 @@ export class MovementSchema {
   status!: string;
 }
 
-export const MovementMongoSchema =
-  SchemaFactory.createForClass(MovementSchema);
+export const MOVEMENT_MODEL = MovementSchema.name;
+export const MovementMongoSchema = SchemaFactory.createForClass(MovementSchema);

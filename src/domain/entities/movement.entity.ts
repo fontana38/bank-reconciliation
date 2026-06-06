@@ -1,8 +1,8 @@
 export class Movement {
   constructor(
-    public source: 'bank' | 'system',
+    public source: string,
     public amount: number,
-    public date: Date,
+    public date: Date | null,
     public description: string,
     public normalizedDescription: string,
     public status: string,

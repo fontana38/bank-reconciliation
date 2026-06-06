@@ -4,14 +4,15 @@ import * as XLSX from 'xlsx';
 
 import { MovementRepository } from 'src/domain/repositories/movement.repository';
 import { parseAmount, parseExcelDate } from '../helper/excel.date.to.jsdate';
-import { SupervielleBankExcelRowDto } from '../dto/supervilleBankExcelRowDto';
+import { BankExcelRowDto } from '../dto/bank.excel.row.dto';
 
 
 
 @Injectable()
-export class ImportBankFileUseCase {
+export class ImportSystemFileUseCase {
   constructor(
     private readonly movementRepository: MovementRepository,
+   
   ) {}
 
   async execute(file: Express.Multer.File) {
@@ -24,13 +25,11 @@ export class ImportBankFileUseCase {
       throw new BadRequestException('El archivo debe ser un Excel .xlsx o .xls');
     }
 
-    console.log(file.originalname);
-
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
-    const rows = XLSX.utils.sheet_to_json<SupervielleBankExcelRowDto>(sheet, {
+    const rows = XLSX.utils.sheet_to_json<BankExcelRowDto>(sheet, {
       raw: false,
       dateNF: 'yyyy-mm-dd',
     });
@@ -39,42 +38,34 @@ export class ImportBankFileUseCase {
       throw new BadRequestException('El archivo no contiene registros');
     }
 
-    console.log('Columnas banco:', Object.keys(rows[0]));
-    console.log('Primera fila banco:', rows[0]);
+    console.log('Columnas sistema:', Object.keys(rows[0]));
+    console.log('Primera fila sistema:', rows[0]);
 
     const movements = rows
       .map((row, index) => {
-        const date = parseExcelDate(row.Fecha);
+        const date = parseExcelDate(row['Fecha Documento'] ?? row['Fecha Extracto']);
 
         if (!date) {
-          console.error(`Fila ${index + 1} con Fecha inválida:`, row.Fecha);
-          console.error(row);
+          console.error(`Fila sistema ${index + 1} sin fecha válida`, row);
           return null;
         }
 
-        const debit = parseAmount(row.Débito);
-        const credit = parseAmount(row.Crédito);
-
-        const amount = credit > 0 ? credit : debit * -1;
-
         return {
-          source: 'bank',
-          company: 'BYT',
+          source: 'system',
+          company: row['Emp.'],
           date,
-          documentDate: date,
-          clientOrProvider: '',
-          document: row.Concepto ?? '',
-          number: '',
-          currency: 'ARS',
-          description: row.Detalle ?? row.Concepto ?? '',
-          normalizedDescription: row.Detalle ?? row.Concepto ?? '',
-          amount,
+          documentDate: parseExcelDate(row['Fecha Documento']),
+          clientOrProvider: row['Proveedor o Cliente'],
+          document: row.Documento,
+          number: row.Numero,
+          currency: row.Moneda,
+          description: row.Descripción,
+          normalizedDescription: row.Descripción,
+          amount: parseAmount(row['Totales M. Local']),
           status: 'PENDING',
         };
       })
       .filter((movement) => movement !== null);
-
-    console.log(`Movimientos banco válidos: ${movements.length}`);
 
     await this.movementRepository.saveMany(movements as any[]);
 
