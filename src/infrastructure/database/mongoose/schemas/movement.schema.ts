@@ -8,6 +8,18 @@ export type MovementDocument = HydratedDocument<MovementSchema>;
   collection: 'movements',
 })
 export class MovementSchema {
+  @Prop()
+  bankCode?: string;
+
+  @Prop()
+  bankAccount?: string;
+
+  @Prop()
+  batchId?: string;
+
+  @Prop()
+  period?: string;
+
   @Prop({ required: true })
   source!: 'bank' | 'system';
 
@@ -25,6 +37,9 @@ export class MovementSchema {
 
   @Prop()
   clientOrProvider?: string;
+
+  @Prop()
+  concept?: string;
 
   @Prop()
   document?: string;
@@ -46,6 +61,15 @@ export class MovementSchema {
 
   @Prop({ required: true, default: 'PENDING' })
   status!: string;
+
+  @Prop()
+  reconciliationId?: string;
+
+  @Prop()
+  balance?: number;
+
+  @Prop()
+  rowIndex?: number;
 }
 
 export const MOVEMENT_MODEL = MovementSchema.name;

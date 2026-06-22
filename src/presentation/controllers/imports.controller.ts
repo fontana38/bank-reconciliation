@@ -4,13 +4,16 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  Query ,
 } from '@nestjs/common';
+
 
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Express } from 'express';
 
 import { ImportBankFileUseCase } from '../../application/use-cases/import-bank-file.use-case';
 import { ImportSystemFileUseCase } from 'src/application/use-cases/import-system-file.use-case';
+
 
 @Controller('imports')
 export class ImportsController {
@@ -23,12 +26,16 @@ export class ImportsController {
   @UseInterceptors(FileInterceptor('file'))
   async importBankFile(
     @UploadedFile() file: Express.Multer.File,
+    @Query('bankCode') bankCode: string,
+  @Query('bankAccount') bankAccount: string,
+  @Query('period') period: string,
+    
   ) {
     if (!file) {
       throw new BadRequestException('File is required');
     }
 
-    const result = await this.importBankFileUseCase.execute(file);
+    const result = await this.importBankFileUseCase.execute(file, bankCode, bankAccount, period);
 
     return {
       message: 'Bank file imported successfully',
@@ -38,8 +45,11 @@ export class ImportsController {
 
    @Post('system')
   @UseInterceptors(FileInterceptor('file'))
-  async importSystemFile(@UploadedFile() file: Express.Multer.File) {
-    const data = await this.importSystemFileUseCase.execute(file);
+  async importSystemFile(@UploadedFile() file: Express.Multer.File,
+ @Query('bankCode') bankCode: string,
+    @Query('bankAccount') bankAccount: string,
+    @Query('period') period: string,) {
+    const data = await this.importSystemFileUseCase.execute(file, bankCode, bankAccount, period);
 
     return {
       message: 'System file imported successfully',

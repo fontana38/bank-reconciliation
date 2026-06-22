@@ -1,68 +1,242 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Movement } from 'src/domain/entities/movement.entity';
 import { MovementRepository } from 'src/domain/repositories/movement.repository';
+import {
+  TRANSFER_CONCEPTS,
+  AMOUNT_TOLERANCE_PERCENTAGE,
+} from 'src/config/reconciliation.config';
 
 @Injectable()
 export class ConciliateMovementsUseCase {
-  constructor(
-    private readonly movementRepository: MovementRepository,
-  ) {}
+  constructor(private readonly movementRepository: MovementRepository) {}
 
-  async execute() {
-    const bankMovements =
-      await this.movementRepository.findPendingBySource('bank');
+  async execute(bankCode: string, bankAccount: string, period: string) {
+    const allBankMovements = await this.movementRepository.findPendingBySource(
+      'bank',
+      bankCode,
+      bankAccount,
+      period,
+    );
 
-    const systemMovements =
-      await this.movementRepository.findPendingBySource('system');
+    const systemMovements = await this.movementRepository.findPendingBySource(
+      'system',
+      bankCode,
+      bankAccount,
+      period,
+    );
 
-    let matched = 0;
+    // Solo nos interesan las transferencias del lado del banco.
+    // El resto (impuestos, comisiones, depósitos en efectivo, etc.) no se concilia.
+    const bankMovements = allBankMovements.filter((m) =>
+      this.isTransfer(m),
+    );
+    const bankExcluded = allBankMovements.length - bankMovements.length;
 
-    const bankOnly: Movement[] = [];
-    const systemOnly: Movement[] = [...systemMovements];
+    const systemPool: Movement[] = [...systemMovements];
+    const stillUnmatchedBank: Movement[] = [];
+    const matchedPairs: Array<{ bank: Movement; system: Movement[] }> = [];
 
+    // --- Pasada 1: matching 1-a-1 (monto con tolerancia + desempate por fecha) ---
     for (const bankMovement of bankMovements) {
-      const matchIndex = systemOnly.findIndex((systemMovement) => {
-        return Math.abs(systemMovement.amount) === Math.abs(bankMovement.amount);
-      });
+      const bestMatch = this.findBestMatch(bankMovement, systemPool);
 
-      if (matchIndex >= 0) {
-        const systemMovement = systemOnly[matchIndex];
+      if (bestMatch) {
+        matchedPairs.push({ bank: bankMovement, system: [bestMatch] });
 
-        await this.movementRepository.updateStatus(
-          (bankMovement as any)._id.toString(),
-          'MATCHED',
-        );
-
-        await this.movementRepository.updateStatus(
-          (systemMovement as any)._id.toString(),
-          'MATCHED',
-        );
-
-        systemOnly.splice(matchIndex, 1);
-        matched++;
+        const idx = systemPool.indexOf(bestMatch);
+        systemPool.splice(idx, 1);
       } else {
-        bankOnly.push(bankMovement);
-
-        await this.movementRepository.updateStatus(
-          (bankMovement as any)._id.toString(),
-          'BANK_ONLY',
-        );
+        stillUnmatchedBank.push(bankMovement);
       }
     }
 
-    for (const systemMovement of systemOnly) {
-      await this.movementRepository.updateStatus(
-        (systemMovement as any)._id.toString(),
-        'SYSTEM_ONLY',
-      );
+    // --- Pasada 2: matching agrupado por 'number' para los bancos que no
+    // encontraron match 1-a-1. Cubre el caso de una transferencia bancaria
+    // que corresponde a la suma de varias órdenes de pago del sistema con
+    // el mismo número de comprobante (ej: pago a un proveedor en 2 líneas).
+    const bankOnly: Movement[] = [];
+
+    for (const bankMovement of stillUnmatchedBank) {
+      const groupMatch = this.findGroupMatch(bankMovement, systemPool);
+
+      if (groupMatch) {
+        matchedPairs.push({ bank: bankMovement, system: groupMatch });
+
+        for (const systemMovement of groupMatch) {
+          const idx = systemPool.indexOf(systemMovement);
+          systemPool.splice(idx, 1);
+        }
+      } else {
+        bankOnly.push(bankMovement);
+      }
     }
 
+    const systemOnly = systemPool;
+    const groupMatchedCount = matchedPairs.filter((p) => p.system.length > 1).length;
+
+    // Persistimos los resultados. Cada par/grupo matched recibe un
+    // reconciliationId común, para poder reconstruir después (en el reporte)
+    // qué movimiento de banco corresponde a qué movimiento(s) de sistema.
+    // Si tu MovementRepository soporta bulk updates, reemplazar este bloque
+    // por updateMany(...) para evitar N round-trips a la DB.
+    await Promise.all([
+      ...matchedPairs.flatMap((pair) => {
+        const reconciliationId = randomUUID();
+        return [
+          this.markMatched(pair.bank, reconciliationId),
+          ...pair.system.map((s) => this.markMatched(s, reconciliationId)),
+        ];
+      }),
+      ...bankOnly.map((m) => this.updateStatus(m, 'BANK_ONLY')),
+      ...systemOnly.map((m) => this.updateStatus(m, 'SYSTEM_ONLY')),
+    ]);
+
     return {
-      totalBank: bankMovements.length,
+      totalBank: allBankMovements.length,
+      bankExcludedNonTransfer: bankExcluded,
+      totalBankTransfers: bankMovements.length,
       totalSystem: systemMovements.length,
-      matched,
+      matched: matchedPairs.length,
+      matchedAsGroup: groupMatchedCount,
       bankOnly: bankOnly.length,
       systemOnly: systemOnly.length,
     };
+  }
+
+  /**
+   * Determina si un movimiento de banco corresponde a una transferencia,
+   * según el concepto puro (no description, que mezcla Detalle/Concepto).
+   * La comparación es case-insensitive para tolerar variaciones de
+   * mayúsculas entre exportaciones del banco.
+   */
+  private isTransfer(bankMovement: Movement): boolean {
+    const concept = (bankMovement.concept ?? '').trim().toLowerCase();
+    return TRANSFER_CONCEPTS.some(
+      (transferConcept) => transferConcept.toLowerCase() === concept,
+    );
+  }
+
+  /**
+   * Busca, entre los candidatos del sistema, un GRUPO de movimientos que
+   * compartan el mismo 'number' (orden de pago / comprobante) cuya suma
+   * caiga dentro de la tolerancia de monto contra el movimiento de banco.
+   * Cubre el caso de una transferencia bancaria que agrupa varias líneas
+   * de pago del sistema (ej: 2 facturas pagadas en una sola transferencia).
+   *
+   * Solo se agrupan movimientos con 'number' no vacío: un number vacío no
+   * es un identificador real y agruparía movimientos no relacionados entre sí.
+   */
+  private findGroupMatch(
+    bankMovement: Movement,
+    candidates: Movement[],
+  ): Movement[] | null {
+    const byNumber = new Map<string, Movement[]>();
+
+    for (const candidate of candidates) {
+      const key = candidate.number?.trim();
+      if (!key) continue;
+
+      const group = byNumber.get(key) ?? [];
+      group.push(candidate);
+      byNumber.set(key, group);
+    }
+
+    for (const group of byNumber.values()) {
+      // Un grupo de tamaño 1 ya se hubiese resuelto en el matching 1-a-1;
+      // si llegó hasta acá sin matchear, sumarlo solo no va a cambiar nada.
+      if (group.length < 2) continue;
+
+      const groupTotal = group.reduce((sum, m) => sum + m.amount, 0);
+
+      if (this.isWithinAmountTolerance(bankMovement.amount, groupTotal)) {
+        return group;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Busca, entre los candidatos del sistema, el mejor match para un movimiento
+   * de banco: monto dentro de la tolerancia porcentual y, si hay varios
+   * candidatos válidos, el de fecha más cercana.
+   */
+  private findBestMatch(
+    bankMovement: Movement,
+    candidates: Movement[],
+  ): Movement | null {
+    const withinTolerance = candidates.filter((systemMovement) =>
+      this.isWithinAmountTolerance(bankMovement.amount, systemMovement.amount),
+    );
+
+    if (withinTolerance.length === 0) {
+      return null;
+    }
+
+    if (withinTolerance.length === 1) {
+      return withinTolerance[0];
+    }
+
+    return this.pickClosestByDate(bankMovement, withinTolerance);
+  }
+
+  private isWithinAmountTolerance(bankAmount: number, systemAmount: number): boolean {
+    const bankAbs = Math.abs(bankAmount);
+    const systemAbs = Math.abs(systemAmount);
+
+    if (bankAbs === 0 && systemAbs === 0) {
+      return true;
+    }
+
+    const diff = Math.abs(bankAbs - systemAbs);
+    const reference = Math.max(bankAbs, systemAbs);
+
+    return diff / reference <= AMOUNT_TOLERANCE_PERCENTAGE;
+  }
+
+  /**
+   * Desempata por fecha más cercana a la del banco. Si algún movimiento
+   * no tiene fecha (null), se lo considera el menos prioritario.
+   */
+  private pickClosestByDate(
+    bankMovement: Movement,
+    candidates: Movement[],
+  ): Movement {
+    const bankDate = bankMovement.date;
+
+    if (!bankDate) {
+      return candidates[0];
+    }
+
+    return candidates.reduce((closest, current) => {
+      if (!current.date) return closest;
+      if (!closest.date) return current;
+
+      const currentDiff = Math.abs(current.date.getTime() - bankDate.getTime());
+      const closestDiff = Math.abs(closest.date.getTime() - bankDate.getTime());
+
+      return currentDiff < closestDiff ? current : closest;
+    }, candidates[0]);
+  }
+
+  private async markMatched(movement: Movement, reconciliationId: string): Promise<void> {
+    if (!movement._id) {
+      throw new Error('Movement sin _id, no se puede marcar como MATCHED');
+    }
+    await this.movementRepository.update({
+      ...movement,
+      status: 'MATCHED',
+      reconciliationId,
+    });
+  }
+
+  private async updateStatus(movement: Movement, status: string): Promise<void> {
+    if (!movement._id) {
+      throw new Error(
+        `Movement sin _id, no se puede actualizar status a ${status}`,
+      );
+    }
+    await this.movementRepository.updateStatus(movement._id.toString(), status);
   }
 }

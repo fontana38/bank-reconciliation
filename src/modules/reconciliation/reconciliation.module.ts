@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConciliateMovementsUseCase } from 'src/application/use-cases/conciliate-movements.use-case';
+import { GetBalanceReportUseCase } from 'src/application/use-cases/get-balance-report.UseCase';
 import { GetReconciliationResultsUseCase } from 'src/application/use-cases/get-reconciliation-results.use-case';
 
 import { ImportBankFileUseCase } from 'src/application/use-cases/import-bank-file.use-case';
@@ -31,6 +32,7 @@ import { ReconciliationController } from 'src/presentation/controllers/reconcili
     ImportSystemFileUseCase,
     ConciliateMovementsUseCase,   
     GetReconciliationResultsUseCase,
+    GetBalanceReportUseCase,
     {
       provide: MovementRepository,
       useClass: MovementMongoRepository,
