@@ -1,3 +1,4 @@
+import { DeleteResult } from "mongoose";
 import { Movement } from "../entities/movement.entity";
 
 
@@ -31,4 +32,6 @@ export abstract class MovementRepository {
   abstract updateStatus(id: string, status: string): Promise<void>;
 
   abstract findByStatus(status?: string): Promise<Movement[]>;
+
+  abstract  deleteConciliation(): Promise<DeleteResult>
 }

@@ -100,6 +100,21 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 
 Sistema para conciliar movimientos bancarios (extracto del banco) contra movimientos del sistema de gestión, identificando coincidencias automáticamente.
 
+### ADR-001 - La búsqueda se realiza en el frontend
+
+**Estado:** Aceptada
+
+**Motivo**
+
+- Solo existe una conciliación activa.
+- No hay historial.
+- No se requiere auditoría.
+- La búsqueda es instantánea y evita llamadas innecesarias al backend.
+
+**Consecuencia**
+
+Si en el futuro se incorporan múltiples conciliaciones o millones de registros, la búsqueda podrá migrarse al backend.
+
 ## Flujo general
 
 ```
@@ -237,10 +252,13 @@ Ver [Reglas del reporte de saldos](#reglas-de-negocio--reporte-de-saldos-balance
    - `Debito Transf. HomeBanking`
    - `CRED BCA ELECTRONICA INTERBANC`
    - `Credito DEBIN`
+   - --------------
+   Pago de Servicios
+   Depósito EN EFECTIVO
 
    Todo lo demás (impuestos, IVA, comisiones, depósitos en efectivo, percepciones) queda fuera del matching y se reporta en `bankExcludedFromMatching`.
 
-2. **Pasada 1 — Matching 1 a 1**: para cada transferencia de banco, se buscan movimientos de sistema cuyo monto esté dentro de una **tolerancia porcentual** (`AMOUNT_TOLERANCE_PERCENTAGE`, default 1%). Si hay un solo candidato, es el match. Si hay varios, se desempata por **fecha más cercana** a la del banco (no es un filtro excluyente, solo desempate).
+2. **Pasada 1 — Matching 1 a 1**: para cada transferencia de banco, se buscan movimientos de sistema cuyo monto esté dentro de una **tolerancia porcentual** (`AMOUNT_TOLERANCE_PERCENTAGE`, default 1%). Si hay un solo candidato, es el match. Si hay varios, se desempata por **monto más cercano al exacto** (no por fecha: la fecha de carga en el sistema casi nunca coincide con la fecha real de acreditación bancaria, así que no es un criterio confiable de desempate).
 
 3. **Pasada 2 — Matching 1 a N (agrupado)**: para las transferencias de banco que no encontraron match en la pasada 1, se agrupan los movimientos de sistema restantes por **`number`** (orden de pago / comprobante) y se prueba si la **suma del grupo** cae dentro de la tolerancia. Cubre el caso real de una transferencia bancaria que paga varias facturas/líneas juntas bajo el mismo número de orden de pago.
 

@@ -13,6 +13,7 @@ import type { Express } from 'express';
 
 import { ImportBankFileUseCase } from '../../application/use-cases/import-bank-file.use-case';
 import { ImportSystemFileUseCase } from 'src/application/use-cases/import-system-file.use-case';
+import { ConciliateMovementsUseCase } from 'src/application/use-cases/conciliate-movements.use-case';
 
 
 @Controller('imports')
@@ -20,6 +21,7 @@ export class ImportsController {
   constructor(
     private readonly importBankFileUseCase: ImportBankFileUseCase,
       private readonly importSystemFileUseCase: ImportSystemFileUseCase,
+       private readonly conciliateMovementsUseCase: ConciliateMovementsUseCase,
   ) {}
 
   @Post('bank')
@@ -55,5 +57,16 @@ export class ImportsController {
       message: 'System file imported successfully',
       data,
     };
+  }
+
+  @Post('deleteConciliation')
+  async deleteConciliation() {
+    console.log('deleteConciliation called');
+    const data = await this.conciliateMovementsUseCase.deleteConciliation();
+  
+     return {
+    message: 'Conciliation deleted successfully',
+    deletedCount: data.deletedCount,
+  };
   }
 }

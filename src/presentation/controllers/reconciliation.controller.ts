@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Controller, Get, Post, Query, StreamableFile } from '@nestjs/common';
 import { ConciliateMovementsUseCase } from 'src/application/use-cases/conciliate-movements.use-case';
 import { GetBalanceReportUseCase } from 'src/application/use-cases/get-balance-report.UseCase';
 import {
@@ -68,4 +68,5 @@ export class ReconciliationController {
       data,
     };
   }
+  
 }

@@ -10,6 +10,8 @@ export const TRANSFER_CONCEPTS: readonly string[] = [
   'Debito Transf. HomeBanking',
   'CRED BCA ELECTRONICA INTERBANC',
   'Credito DEBIN',
+  'Pago de Servicios',
+  'Depósito EN EFECTIVO',
 ];
 
 /**

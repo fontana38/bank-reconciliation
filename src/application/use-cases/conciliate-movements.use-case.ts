@@ -6,12 +6,18 @@ import {
   TRANSFER_CONCEPTS,
   AMOUNT_TOLERANCE_PERCENTAGE,
 } from 'src/config/reconciliation.config';
+import { DeleteResult } from 'mongodb';
 
 @Injectable()
 export class ConciliateMovementsUseCase {
   constructor(private readonly movementRepository: MovementRepository) {}
 
   async execute(bankCode: string, bankAccount: string, period: string) {
+
+    // Eliminamos cualquier conciliación previa para la cuenta/período antes de correr la nueva.
+    await this.deleteConciliation();
+
+    // Traemos los movimientos pendientes de conciliación del banco y del sistema.
     const allBankMovements = await this.movementRepository.findPendingBySource(
       'bank',
       bankCode,
@@ -131,9 +137,15 @@ export class ConciliateMovementsUseCase {
     bankMovement: Movement,
     candidates: Movement[],
   ): Movement[] | null {
+    // Solo agrupamos candidatos del mismo signo que el banco: un grupo no
+    // debería mezclar cobros y pagos para sumar "casualmente" el monto correcto.
+    const sameSignCandidates = candidates.filter(
+      (c) => Math.sign(c.amount) === Math.sign(bankMovement.amount),
+    );
+
     const byNumber = new Map<string, Movement[]>();
 
-    for (const candidate of candidates) {
+    for (const candidate of sameSignCandidates) {
       const key = candidate.number?.trim();
       if (!key) continue;
 
@@ -160,7 +172,7 @@ export class ConciliateMovementsUseCase {
   /**
    * Busca, entre los candidatos del sistema, el mejor match para un movimiento
    * de banco: monto dentro de la tolerancia porcentual y, si hay varios
-   * candidatos válidos, el de fecha más cercana.
+   * candidatos válidos, el de monto más cercano al exacto.
    */
   private findBestMatch(
     bankMovement: Movement,
@@ -178,15 +190,27 @@ export class ConciliateMovementsUseCase {
       return withinTolerance[0];
     }
 
-    return this.pickClosestByDate(bankMovement, withinTolerance);
+    return this.pickClosestByAmount(bankMovement, withinTolerance);
   }
 
+  /**
+   * Compara montos con tolerancia porcentual, EXIGIENDO que tengan el mismo
+   * signo. Un movimiento de banco positivo (cobro/crédito) nunca puede
+   * matchear con uno de sistema negativo (pago) y viceversa -- sin este
+   * chequeo, dos movimientos de magnitud similar pero signo opuesto podían
+   * "matchear" solo por casualidad numérica, produciendo conciliaciones
+   * sin sentido (ej: un cobro DEBIN contra una orden de pago).
+   */
   private isWithinAmountTolerance(bankAmount: number, systemAmount: number): boolean {
     const bankAbs = Math.abs(bankAmount);
     const systemAbs = Math.abs(systemAmount);
 
     if (bankAbs === 0 && systemAbs === 0) {
       return true;
+    }
+
+    if (Math.sign(bankAmount) !== Math.sign(systemAmount)) {
+      return false;
     }
 
     const diff = Math.abs(bankAbs - systemAbs);
@@ -196,25 +220,21 @@ export class ConciliateMovementsUseCase {
   }
 
   /**
-   * Desempata por fecha más cercana a la del banco. Si algún movimiento
-   * no tiene fecha (null), se lo considera el menos prioritario.
+   * Desempata por monto más cercano al exacto. Cuando hay varios candidatos
+   * dentro de la tolerancia, prioriza el que minimiza la diferencia absoluta
+   * de monto contra el banco, en vez de la fecha más cercana -- la fecha de
+   * carga en el sistema no es confiable como criterio de desempate porque
+   * casi nunca coincide con la fecha real de acreditación bancaria.
    */
-  private pickClosestByDate(
+  private pickClosestByAmount(
     bankMovement: Movement,
     candidates: Movement[],
   ): Movement {
-    const bankDate = bankMovement.date;
-
-    if (!bankDate) {
-      return candidates[0];
-    }
+    const bankAbs = Math.abs(bankMovement.amount);
 
     return candidates.reduce((closest, current) => {
-      if (!current.date) return closest;
-      if (!closest.date) return current;
-
-      const currentDiff = Math.abs(current.date.getTime() - bankDate.getTime());
-      const closestDiff = Math.abs(closest.date.getTime() - bankDate.getTime());
+      const currentDiff = Math.abs(Math.abs(current.amount) - bankAbs);
+      const closestDiff = Math.abs(Math.abs(closest.amount) - bankAbs);
 
       return currentDiff < closestDiff ? current : closest;
     }, candidates[0]);
@@ -238,5 +258,9 @@ export class ConciliateMovementsUseCase {
       );
     }
     await this.movementRepository.updateStatus(movement._id.toString(), status);
+  }
+
+  public async deleteConciliation():  Promise<DeleteResult> {
+    return await this.movementRepository.deleteConciliation();
   }
 }

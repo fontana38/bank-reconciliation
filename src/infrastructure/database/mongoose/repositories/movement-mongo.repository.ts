@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { DeleteResult, Model } from 'mongoose';
 
 import { MovementRepository } from '../../../../domain/repositories/movement.repository';
 import { Movement } from '../../../../domain/entities/movement.entity';
@@ -87,5 +87,11 @@ export class MovementMongoRepository implements MovementRepository {
 
   async updateStatus(id: string, status: string): Promise<void> {
     await this.movementModel.updateOne({ _id: id }, { $set: { status } });
+  }
+
+  async deleteConciliation(): Promise<DeleteResult> {
+    const result= await this.movementModel.deleteMany({});
+     console.log('Movimientos eliminados:', result.deletedCount);
+     return result 
   }
 }
