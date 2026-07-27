@@ -3,21 +3,17 @@ import { AppModule } from './app.module';
 
 
 async function bootstrap() {
+  console.log("3 - Antes de crear Nest");
+
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({
-    origin: [
-      'http://localhost:5173',
-       process.env.FRONTEND_URL,
-    ],
-    credentials: true,
-  });
+  console.log("4 - Nest creado");
 
   const port = Number(process.env.PORT) || 3000;
 
-  await app.listen(port, '0.0.0.0');
+  await app.listen(port, "0.0.0.0");
 
-  console.log(`🚀 API corriendo en el puerto ${port}`);
+  console.log("5 - Escuchando");
 }
 
 bootstrap();
