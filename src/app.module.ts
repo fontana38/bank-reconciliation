@@ -10,10 +10,24 @@ import { ReconciliationModule } from './modules/reconciliation/reconciliation.mo
     }),
 
     MongooseModule.forRootAsync({
+      imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        uri: config.get<string>('MONGO_URI'),
-      }),
+      useFactory: (config: ConfigService) => {
+        const mongoUri = config.get<string>('MONGO_URI');
+
+        console.log('MONGO_URI disponible:', Boolean(mongoUri));
+        console.log('NODE_ENV:', config.get<string>('NODE_ENV'));
+
+        if (!mongoUri) {
+          throw new Error(
+            'La variable de entorno MONGO_URI no está definida',
+          );
+        }
+
+        return {
+          uri: mongoUri,
+        };
+      },
     }),
 
     ReconciliationModule,
