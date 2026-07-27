@@ -9,26 +9,21 @@ import { ReconciliationModule } from './modules/reconciliation/reconciliation.mo
       isGlobal: true,
     }),
 
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const mongoUri = config.get<string>('MONGO_URI');
+   MongooseModule.forRootAsync({
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => {
+    console.log("1 - Entró al useFactory");
 
-        console.log('MONGO_URI disponible:', Boolean(mongoUri));
-        console.log('NODE_ENV:', config.get<string>('NODE_ENV'));
+    const uri = config.getOrThrow<string>("MONGO_URI");
 
-        if (!mongoUri) {
-          throw new Error(
-            'La variable de entorno MONGO_URI no está definida',
-          );
-        }
+    console.log("2 - URI obtenida");
 
-        return {
-          uri: mongoUri,
-        };
-      },
-    }),
+    return {
+      uri,
+      serverSelectionTimeoutMS: 5000,
+    };
+  },
+}),
 
     ReconciliationModule,
   ],
