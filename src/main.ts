@@ -13,7 +13,7 @@ async function bootstrap() {
 
   await app.listen(port, "0.0.0.0");
 
-  console.log("5 - Escuchando");
+console.log(`5 - Escuchando en 0.0.0.0:${port}`);
 }
 
 bootstrap();
