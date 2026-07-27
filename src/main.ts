@@ -3,11 +3,14 @@ import { AppModule } from './app.module';
 
 
 async function bootstrap() {
-  console.log("3 - Antes de crear Nest");
-
   const app = await NestFactory.create(AppModule);
-
-  console.log("4 - Nest creado");
+  app.enableCors({
+  origin: [
+    'http://localhost:5173',
+    process.env.FRONTEND_URL,
+  ].filter(Boolean),
+  credentials: true,
+});
 
   const port = Number(process.env.PORT) || 3000;
 
