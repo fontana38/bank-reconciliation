@@ -14,8 +14,6 @@ export class ConciliateMovementsUseCase {
 
   async execute(bankCode: string, bankAccount: string, period: string) {
 
-    // Eliminamos cualquier conciliación previa para la cuenta/período antes de correr la nueva.
-    await this.deleteConciliation();
 
     // Traemos los movimientos pendientes de conciliación del banco y del sistema.
     const allBankMovements = await this.movementRepository.findPendingBySource(
@@ -260,7 +258,5 @@ export class ConciliateMovementsUseCase {
     await this.movementRepository.updateStatus(movement._id.toString(), status);
   }
 
-  public async deleteConciliation():  Promise<DeleteResult> {
-    return await this.movementRepository.deleteConciliation();
-  }
+ 
 }
